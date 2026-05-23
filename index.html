@@ -1,0 +1,250 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <title>Monad 2048</title>
+  <style>
+    body { font-family: Arial; text-align: center; background: #faf8ef; margin: 0; padding: 20px; }
+    h1 { color: #776e65; }
+    #board { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; width: 400px; margin: 20px auto; background: #bbada0; padding: 10px; border-radius: 10px; }
+    .tile { width: 90px; height: 90px; display: flex; align-items: center; justify-content: center; font-size: 35px; font-weight: bold; border-radius: 8px; color: #776e65; box-shadow: 0 2px 4px rgba(0,0,0,0.2); }
+    .tile-2 { background: #eee4da; }
+    .tile-4 { background: #ede0c8; }
+    .tile-8 { background: #f2b179; color: white; }
+    .tile-16 { background: #f59563; color: white; }
+    .tile-32 { background: #f67c5f; color: white; }
+    .tile-64 { background: #f65e3b; color: white; }
+    .tile-128 { background: #edcf72; color: white; font-size: 30px; }
+    .tile-256 { background: #edcc61; color: white; font-size: 30px; }
+    .tile-512 { background: #9c0; color: white; }
+    .tile-1024 { background: #33b679; color: white; font-size: 25px; }
+    .tile-2048 { background: #f00; color: white; font-size: 25px; }
+    button { padding: 12px 24px; margin: 10px; font-size: 18px; border: none; border-radius: 8px; cursor: pointer; }
+    #connect { background: #8f7a66; color: white; }
+    #submit { background: #776e65; color: white; display: none; }
+    #status { margin: 15px; font-size: 16px; min-height: 24px; }
+  </style>
+</head>
+<body>
+  <h1>Monad 2048</h1>
+  <button id="connect">连接 Monad 钱包</button>
+  <div id="status">请先连接钱包才能开始游戏</div>
+  
+  <div id="game" style="display:none;">
+    <div id="board"></div>
+    <h2>当前分数: <span id="score">0</span> | 最高分: <span id="highscore">0</span></h2>
+    <button id="submit">提交分数到 Monad 主网</button>
+    <button id="newgame">新游戏</button>
+  </div>
+
+  <script src="https://cdn.ethers.io/lib/ethers-6.13.umd.min.js"></script>
+  <script>
+    const CONTRACT_ADDRESS = "0xDFE897cA3785640862Ab8660024fbf14927515F2";
+    let board = Array(16).fill(0);
+    let score = 0;
+    let highScore = 0;
+    let connectedAddress = null;
+    let provider, signer;
+
+    const boardEl = document.getElementById('board');
+    const scoreEl = document.getElementById('score');
+    const highscoreEl = document.getElementById('highscore');
+    const statusDiv = document.getElementById('status');
+    const connectBtn = document.getElementById('connect');
+    const submitBtn = document.getElementById('submit');
+    const newgameBtn = document.getElementById('newgame');
+    const gameDiv = document.getElementById('game');
+
+    function initBoard() {
+      board = Array(16).fill(0);
+      score = 0;
+      addRandomTile();
+      addRandomTile();
+      render();
+      updateScore();
+    }
+
+    function addRandomTile() {
+      let emptyCells = [];
+      for (let i = 0; i < 16; i++) if (board[i] === 0) emptyCells.push(i);
+      if (emptyCells.length === 0) return;
+      let pos = emptyCells[Math.floor(Math.random() * emptyCells.length)];
+      board[pos] = Math.random() < 0.9 ? 2 : 4;
+    }
+
+    function render() {
+      boardEl.innerHTML = '';
+      for (let i = 0; i < 16; i++) {
+        const tile = document.createElement('div');
+        tile.className = 'tile';
+        if (board[i] !== 0) {
+          tile.textContent = board[i];
+          if (board[i] <= 2048) tile.classList.add(`tile-${board[i]}`);
+          else tile.classList.add('tile-2048');
+        }
+        boardEl.appendChild(tile);
+      }
+    }
+
+    function updateScore() {
+      scoreEl.textContent = score;
+      if (score > highScore) highScore = score;
+      highscoreEl.textContent = highScore;
+      if (score > 300) submitBtn.style.display = 'inline-block';
+    }
+
+    // 移动逻辑
+    function move(dir) {
+      let moved = false;
+      let newBoard = [...board];
+
+      if (dir === 'right') moved = slideRight(newBoard);
+      else if (dir === 'left') moved = slideLeft(newBoard);
+      else if (dir === 'up') moved = slideUp(newBoard);
+      else if (dir === 'down') moved = slideDown(newBoard);
+
+      if (moved) {
+        board = newBoard;
+        addRandomTile();
+        render();
+        updateScore();
+      }
+    }
+
+    // 简化但可用的滑动逻辑
+    function slideRight(b) {
+      let moved = false;
+      for (let row = 0; row < 4; row++) {
+        let line = [b[row*4], b[row*4+1], b[row*4+2], b[row*4+3]].filter(v => v !== 0);
+        for (let i = line.length-1; i > 0; i--) {
+          if (line[i] === line[i-1]) {
+            line[i] *= 2;
+            score += line[i];
+            line.splice(i-1, 1);
+          }
+        }
+        while (line.length < 4) line.unshift(0);
+        for (let i = 0; i < 4; i++) {
+          if (b[row*4 + i] !== line[i]) moved = true;
+          b[row*4 + i] = line[i];
+        }
+      }
+      return moved;
+    }
+
+    function slideLeft(b) {
+      let moved = false;
+      for (let row = 0; row < 4; row++) {
+        let line = [b[row*4], b[row*4+1], b[row*4+2], b[row*4+3]].filter(v => v !== 0);
+        for (let i = 0; i < line.length-1; i++) {
+          if (line[i] === line[i+1]) {
+            line[i] *= 2;
+            score += line[i];
+            line.splice(i+1, 1);
+          }
+        }
+        while (line.length < 4) line.push(0);
+        for (let i = 0; i < 4; i++) {
+          if (b[row*4 + i] !== line[i]) moved = true;
+          b[row*4 + i] = line[i];
+        }
+      }
+      return moved;
+    }
+
+    function slideUp(b) {
+      let moved = false;
+      for (let col = 0; col < 4; col++) {
+        let line = [b[col], b[col+4], b[col+8], b[col+12]].filter(v => v !== 0);
+        for (let i = 0; i < line.length-1; i++) {
+          if (line[i] === line[i+1]) {
+            line[i] *= 2;
+            score += line[i];
+            line.splice(i+1, 1);
+          }
+        }
+        while (line.length < 4) line.push(0);
+        for (let i = 0; i < 4; i++) {
+          if (b[col + i*4] !== line[i]) moved = true;
+          b[col + i*4] = line[i];
+        }
+      }
+      return moved;
+    }
+
+    function slideDown(b) {
+      let moved = false;
+      for (let col = 0; col < 4; col++) {
+        let line = [b[col], b[col+4], b[col+8], b[col+12]].filter(v => v !== 0);
+        for (let i = line.length-1; i > 0; i--) {
+          if (line[i] === line[i-1]) {
+            line[i] *= 2;
+            score += line[i];
+            line.splice(i-1, 1);
+          }
+        }
+        while (line.length < 4) line.unshift(0);
+        for (let i = 0; i < 4; i++) {
+          if (b[col + i*4] !== line[i]) moved = true;
+          b[col + i*4] = line[i];
+        }
+      }
+      return moved;
+    }
+
+    // 键盘控制
+    document.addEventListener('keydown', e => {
+      if (!connectedAddress) return;
+      if (e.key === 'ArrowRight') move('right');
+      else if (e.key === 'ArrowLeft') move('left');
+      else if (e.key === 'ArrowUp') move('up');
+      else if (e.key === 'ArrowDown') move('down');
+    });
+
+    // 连接钱包
+    connectBtn.onclick = async () => {
+      if (!window.ethereum) return alert("请安装 MetaMask 或 Rabby 钱包，并切换到 Monad 主网");
+
+      try {
+        provider = new ethers.BrowserProvider(window.ethereum);
+        await provider.send("eth_requestAccounts", []);
+        signer = await provider.getSigner();
+        connectedAddress = await signer.getAddress();
+
+        statusDiv.textContent = `✅ 已连接: ${connectedAddress.slice(0,6)}...${connectedAddress.slice(-4)}`;
+        connectBtn.style.display = 'none';
+        gameDiv.style.display = 'block';
+        initBoard();
+      } catch (err) {
+        alert("连接失败，请确保已切换到 Monad 主网");
+      }
+    };
+
+    // 提交分数
+    submitBtn.onclick = async () => {
+      if (score < 100) return alert("分数太低，建议玩到更高分再提交");
+
+      try {
+        statusDiv.textContent = "正在提交到 Monad 主网...";
+        const abi = ["function submitScore(uint256 _score)"];
+        const contract = new ethers.Contract(CONTRACT_ADDRESS, abi, signer);
+        
+        const tx = await contract.submitScore(score);
+        statusDiv.textContent = `交易已发送: ${tx.hash.slice(0,12)}...`;
+        
+        await tx.wait();
+        statusDiv.textContent = `🎉 分数 ${score} 已成功上链！`;
+      } catch (e) {
+        statusDiv.textContent = "提交失败: " + (e.shortMessage || e.message);
+      }
+    };
+
+    newgameBtn.onclick = initBoard;
+
+    // 启动提示
+    window.onload = () => {
+      statusDiv.textContent = "点击上方「连接 Monad 钱包」开始游戏";
+    };
+  </script>
+</body>
+</html>
