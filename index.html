@@ -37,7 +37,8 @@
     <button id="newgame">新游戏</button>
   </div>
 
-  <script src="https://cdn.ethers.io/lib/ethers-6.13.umd.min.js"></script>
+  <!-- 使用更稳定的 CDN -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/ethers/6.15.0/ethers.umd.min.js"></script>
   <script>
     const CONTRACT_ADDRESS = "0xDFE897cA3785640862Ab8660024fbf14927515F2";
     let board = Array(16).fill(0);
@@ -54,28 +55,44 @@
     const newgameBtn = document.getElementById('newgame');
     const gameDiv = document.getElementById('game');
 
+    // 等待 ethers 加载
+    function waitForEthers() {
+      return new Promise((resolve, reject) => {
+        if (typeof ethers !== "undefined") return resolve();
+        let attempts = 0;
+        const interval = setInterval(() => {
+          attempts++;
+          if (typeof ethers !== "undefined") {
+            clearInterval(interval);
+            resolve();
+          }
+          if (attempts > 20) {
+            clearInterval(interval);
+            reject(new Error("ethers 加载失败"));
+          }
+        }, 300);
+      });
+    }
+
     // 智能获取钱包 Provider（支持 OKX）
     async function getProvider() {
-      if (window.okxwallet) {
-        statusDiv.textContent = "检测到 OKX 钱包...";
-        return window.okxwallet;
-      }
+      if (window.okxwallet) return window.okxwallet;
       if (window.ethereum) {
-        // 如果有多个钱包，优先尝试 OKX
         if (window.ethereum.providers) {
-          const okxProvider = window.ethereum.providers.find(p => p.isOkxWallet);
-          if (okxProvider) return okxProvider;
+          const okx = window.ethereum.providers.find(p => p.isOkxWallet);
+          if (okx) return okx;
         }
         return window.ethereum;
       }
-      throw new Error("未检测到钱包，请安装 OKX Wallet");
+      throw new Error("未找到 OKX 钱包，请安装并解锁");
     }
 
     // 连接钱包
     connectBtn.onclick = async () => {
       try {
         statusDiv.textContent = "正在连接 OKX 钱包...";
-        
+        await waitForEthers();   // 确保 ethers 已加载
+
         const provider = await getProvider();
         await provider.request({ method: 'eth_requestAccounts' });
         
@@ -83,13 +100,13 @@
         signer = await ethersProvider.getSigner();
         const address = await signer.getAddress();
 
-        statusDiv.textContent = `✅ 已连接 OKX 钱包: ${address.slice(0,6)}...${address.slice(-4)}`;
+        statusDiv.textContent = `✅ 已连接: ${address.slice(0,6)}...${address.slice(-4)}`;
         connectBtn.style.display = 'none';
         gameDiv.style.display = 'block';
         initBoard();
       } catch (err) {
         console.error(err);
-        statusDiv.textContent = "❌ 连接失败：" + (err.message || "请确保 OKX 钱包已解锁并切换到 Monad 主网");
+        statusDiv.textContent = "❌ 连接失败: " + (err.message || "请确保 OKX 钱包已切换到 Monad 主网");
       }
     };
 
@@ -131,7 +148,6 @@
       if (score > 300) submitBtn.style.display = 'inline-block';
     }
 
-    // 移动逻辑（保持不变）
     function move(dir) {
       let moved = false;
       let newBoard = [...board];
@@ -149,7 +165,8 @@
       }
     }
 
-    function slideRight(b) { /* ... 同之前 */ 
+    // 滑动逻辑（简化版）
+    function slideRight(b) {
       let moved = false;
       for (let row = 0; row < 4; row++) {
         let line = [b[row*4], b[row*4+1], b[row*4+2], b[row*4+3]].filter(v => v !== 0);
@@ -169,7 +186,7 @@
       return moved;
     }
 
-    function slideLeft(b) { /* ... 同之前 */ 
+    function slideLeft(b) {
       let moved = false;
       for (let row = 0; row < 4; row++) {
         let line = [b[row*4], b[row*4+1], b[row*4+2], b[row*4+3]].filter(v => v !== 0);
@@ -189,7 +206,7 @@
       return moved;
     }
 
-    function slideUp(b) { /* ... 同之前 */ 
+    function slideUp(b) {
       let moved = false;
       for (let col = 0; col < 4; col++) {
         let line = [b[col], b[col+4], b[col+8], b[col+12]].filter(v => v !== 0);
@@ -209,7 +226,7 @@
       return moved;
     }
 
-    function slideDown(b) { /* ... 同之前 */ 
+    function slideDown(b) {
       let moved = false;
       for (let col = 0; col < 4; col++) {
         let line = [b[col], b[col+4], b[col+8], b[col+12]].filter(v => v !== 0);
@@ -237,20 +254,16 @@
       else if (e.key === 'ArrowDown') move('down');
     });
 
-    // 提交分数
     submitBtn.onclick = async () => {
-      if (score < 100) return alert("分数太低，建议再玩高一点再提交");
-
+      if (score < 100) return alert("分数太低，建议玩更高再提交");
       try {
         statusDiv.textContent = "正在提交到 Monad 主网...";
         const abi = ["function submitScore(uint256 _score)"];
         const contract = new ethers.Contract(CONTRACT_ADDRESS, abi, signer);
-        
         const tx = await contract.submitScore(score);
-        statusDiv.textContent = `交易发送中: ${tx.hash.slice(0,12)}...`;
-        
+        statusDiv.textContent = `交易发送: ${tx.hash.slice(0,12)}...`;
         await tx.wait();
-        statusDiv.textContent = `🎉 分数 ${score} 已成功上链！`;
+        statusDiv.textContent = `🎉 ${score} 分已成功上链！`;
       } catch (e) {
         statusDiv.textContent = "提交失败: " + (e.shortMessage || e.message);
       }
@@ -264,5 +277,4 @@
   </script>
 </body>
 </html>
-</body>
 </html>
